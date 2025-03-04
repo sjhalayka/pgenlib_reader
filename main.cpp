@@ -24,7 +24,7 @@ int32_t main(int32_t argc, char** argv) {
     uintptr_t cur_alloc_cacheline_ct;
 
     // Initialize Phase 1
-    reterr = PgfiInitPhase1("data2.pgen", nullptr, 0xffffffffU, sample_ct, &header_ctrl, &pgfi, &cur_alloc_cacheline_ct, errstr_buf);
+    reterr = PgfiInitPhase1("plink2.pgen", nullptr, 0xffffffffU, sample_ct, &header_ctrl, &pgfi, &cur_alloc_cacheline_ct, errstr_buf);
     if (reterr) {
         fputs(errstr_buf, stderr);
         return 1;
@@ -51,17 +51,17 @@ int32_t main(int32_t argc, char** argv) {
 
     // Initialize Phase 2 - corrected parameters
     uint32_t max_vrec_width = 0;// pgfi.const_vrec_width;  // This will be filled by the function
-    
+
     reterr = PgfiInitPhase2(header_ctrl,
-        1,              // read_backward - typically set to 1 for forward reading
-        0,              // ignore_genetic_distance
-        0,              // use_blockload
-        0,              // vblock_idx_start
-        variant_ct,     // vblock_idx_end - should be variant_ct, not 0
+        0,              
+        0,              
+        0,              
+        0,              
+        variant_ct,    
         &max_vrec_width,
         &pgfi,
         pgfi_alloc.data(),
-        nullptr,         // thread_ct
+        nullptr,         
         errstr_buf);
 
     if (reterr) {
@@ -71,7 +71,7 @@ int32_t main(int32_t argc, char** argv) {
 
 
 
-    
+
 
 
 
@@ -84,10 +84,10 @@ int32_t main(int32_t argc, char** argv) {
     size_t pgr_alloc_size = cur_alloc_cacheline_ct * kCacheline;
     std::vector<unsigned char> pgr_alloc(pgr_alloc_size);
 
-  
+
 
     // Initialize reader - corrected parameters
-    reterr = PgrInit("data2.pgen", max_vrec_width, &pgfi, &pgr, pgr_alloc.data());
+    reterr = PgrInit("plink2.pgen", max_vrec_width, &pgfi, &pgr, pgr_alloc.data());
     if (reterr) {
         fprintf(stderr, "PgrInit failed.\n");
         CleanupPgfi(&pgfi, &reterr);
