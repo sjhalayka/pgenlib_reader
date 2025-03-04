@@ -116,8 +116,6 @@ int32_t main(int32_t argc, char** argv)
         {
             uint32_t cur_variant_idx = variant_idx + i;
 
-
-
             // Read hardcalls for the current variant - corrected parameters
             reterr = PgrGet(nullptr, null_subset_index, sample_ct, cur_variant_idx, &pgr, genovec.data());
             if (reterr) {
@@ -126,41 +124,41 @@ int32_t main(int32_t argc, char** argv)
                 break;
             }
 
-            cout << cur_variant_idx << endl;
-            continue;
+            //cout << cur_variant_idx << endl;
+            //continue;
 
-            // Process genovec data as needed
-            // Example: Count allele frequencies
-            uint64_t allele_counts[4] = { 0 };
-            for (uint32_t widx = 0; widx < raw_sample_ctl; ++widx) {
-                uintptr_t geno_word = genovec[widx];
+            //// Process genovec data as needed
+            //// Example: Count allele frequencies
+            //uint64_t allele_counts[4] = { 0 };
+            //for (uint32_t widx = 0; widx < raw_sample_ctl; ++widx) {
+            //    uintptr_t geno_word = genovec[widx];
 
-                // Each genotype uses 2 bits: 
-                // 00 = homozygous ref, 01 = het, 10 = homozygous alt, 11 = missing
-                for (uint32_t bit_pos = 0; bit_pos < kBitsPerWord; bit_pos += 2) {
-                    uint32_t genotype = (geno_word >> bit_pos) & 3;
-                    allele_counts[genotype]++;
-                }
-            }
+            //    // Each genotype uses 2 bits: 
+            //    // 00 = homozygous ref, 01 = het, 10 = homozygous alt, 11 = missing
+            //    for (uint32_t bit_pos = 0; bit_pos < kBitsPerWord; bit_pos += 2) {
+            //        uint32_t genotype = (geno_word >> bit_pos) & 3;
+            //        allele_counts[genotype]++;
+            //    }
+            //}
 
-            // Adjust the counts for the last word if sample_ct is not a multiple of 32
-            if (sample_ct % 32) {
-                uint32_t extra_samples = sample_ct % 32;
-                uint32_t last_word_idx = raw_sample_ctl - 1;
+            //// Adjust the counts for the last word if sample_ct is not a multiple of 32
+            //if (sample_ct % 32) {
+            //    uint32_t extra_samples = sample_ct % 32;
+            //    uint32_t last_word_idx = raw_sample_ctl - 1;
 
-                // Mask out bits beyond the last sample
-                for (uint32_t bit_pos = extra_samples * 2; bit_pos < kBitsPerWord; bit_pos += 2) {
-                    uint32_t genotype = (genovec[last_word_idx] >> bit_pos) & 3;
-                    allele_counts[genotype]--;
-                }
-            }
+            //    // Mask out bits beyond the last sample
+            //    for (uint32_t bit_pos = extra_samples * 2; bit_pos < kBitsPerWord; bit_pos += 2) {
+            //        uint32_t genotype = (genovec[last_word_idx] >> bit_pos) & 3;
+            //        allele_counts[genotype]--;
+            //    }
+            //}
 
-            printf("Variant %u: Hom Ref: %llu, Het: %llu, Hom Alt: %llu, Missing: %llu\n",
-                cur_variant_idx,
-                (unsigned long long)allele_counts[0],
-                (unsigned long long)allele_counts[1],
-                (unsigned long long)allele_counts[2],
-                (unsigned long long)allele_counts[3]);
+            //printf("Variant %u: Hom Ref: %llu, Het: %llu, Hom Alt: %llu, Missing: %llu\n",
+            //    cur_variant_idx,
+            //    (unsigned long long)allele_counts[0],
+            //    (unsigned long long)allele_counts[1],
+            //    (unsigned long long)allele_counts[2],
+            //    (unsigned long long)allele_counts[3]);
         }
     }
 
