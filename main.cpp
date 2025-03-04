@@ -1,10 +1,16 @@
 #include "pgenlib_read.h"
 #include "pgenlib_write.h"
-using namespace std;
 
-#ifdef __cplusplus
-using namespace plink2;
-#endif
+uint32_t min_uint32_t(uint32_t a, uint32_t b)
+{
+    if (a < b)
+        return a;
+
+    return b;
+}
+
+
+
 
 int32_t main(int32_t argc, char** argv)
 {
@@ -105,11 +111,11 @@ int32_t main(int32_t argc, char** argv)
 
     // Define the chunk size (number of variants to read at once)
     const uint32_t chunk_size = 100;  // Adjust based on your memory constraints
-    bool error_occurred = false;
+    int error_occurred = 0;
 
     // Process the file in chunks
     for (uint32_t variant_idx = 0; variant_idx < variant_ct && !error_occurred; variant_idx += chunk_size) {
-        uint32_t cur_chunk_size = std::min(chunk_size, variant_ct - variant_idx);
+        uint32_t cur_chunk_size = min_uint32_t(chunk_size, variant_ct - variant_idx);
         printf("Processing variants %u to %u...\n", variant_idx, variant_idx + cur_chunk_size - 1);
 
         // Process each variant in the current chunk
@@ -121,7 +127,7 @@ int32_t main(int32_t argc, char** argv)
             if (cur_variant_idx >= variant_ct) {
                 fprintf(stderr, "Error: attempting to read variant %u but variant_ct is %u\n",
                     cur_variant_idx, variant_ct);
-                error_occurred = true;
+                error_occurred = 1;
                 break;
             }
 
@@ -130,20 +136,20 @@ int32_t main(int32_t argc, char** argv)
             if (reterr)
             {
                 fprintf(stderr, "Error reading variant %u (reterr=%d)\n", cur_variant_idx, (int)reterr);
-                error_occurred = true;
+                error_occurred = 1;
                 break;
             }
 
             // Sanity check the data after reading
             // In debug mode, check that there are no illegal values in the genovec
-            bool has_illegal_value = false;
+            int has_illegal_value = 0;
             for (uint32_t widx = 0; widx < raw_sample_ctl && !has_illegal_value; ++widx) {
                 uintptr_t geno_word = genovec[widx];
                 // Check if any 2-bit value is > 3
                 // This is a bit-hack to detect invalid values (each genotype is 2 bits)
                 uintptr_t detect = (geno_word & (geno_word >> 1)) & UINTPTR_MAX / 3;
                 if (detect) {
-                    has_illegal_value = true;
+                    has_illegal_value = 1;
                 }
             }
             if (has_illegal_value) {
