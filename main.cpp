@@ -11,7 +11,7 @@ using namespace std;
 using namespace plink2;
 #endif
 
-int32_t main(int32_t argc, char** argv) 
+int32_t main(int32_t argc, char** argv)
 {
     PglErr reterr = kPglRetSuccess;
     PgenHeaderCtrl header_ctrl;
@@ -45,20 +45,19 @@ int32_t main(int32_t argc, char** argv)
 
     printf("%u variant%s and %u sample%s detected.\n", variant_ct, (variant_ct == 1) ? "" : "s", sample_ct, (sample_ct == 1) ? "" : "s");
 
-    // Allocate memory for pgfi using vector
+    // Allocate memory for pgfi
     size_t pgfi_alloc_size = cur_alloc_cacheline_ct * kCacheline;
     std::vector<unsigned char> pgfi_alloc(pgfi_alloc_size);
 
-
-    // Initialize Phase 2 - corrected parameters
-    uint32_t max_vrec_width = 0;// pgfi.const_vrec_width;  // This will be filled by the function
+    // Initialize Phase 2
+    uint32_t max_vrec_width = 0; // Will be filled by the function
 
     reterr = PgfiInitPhase2(header_ctrl,
-        0,              
-        0,              
-        0,              
-        0,              
-        variant_ct,    
+        0,
+        0,
+        0,
+        0,
+        variant_ct,
         &max_vrec_width,
         &pgfi,
         pgfi_alloc.data(),
@@ -70,32 +69,48 @@ int32_t main(int32_t argc, char** argv)
         return 1;
     }
 
-
-
-
-
-
-
     // Calculate memory requirements for reader
     const uint32_t raw_sample_ctl = BitCtToWordCt(sample_ct);
-    const uint32_t genovec_bytes_req = raw_sample_ctl * sizeof(intptr_t);
-    cur_alloc_cacheline_ct = DivUp(genovec_bytes_req, kCacheline);
+
+    // Need more memory for reader - account for auxiliary buffers
+    // For hardcall reading, we need at minimum:
+    // 1. genovec buffer (raw_sample_ctl * sizeof(uintptr_t))
+    // 2. Internal read buffer (at least max_vrec_width)
+    // 3. Additional buffers for multiallelic variants, dosage, phase info, etc.
+
+    // Use a more generous allocation - particularly important for multiallelic variants
+    uintptr_t pgr_alloc_cacheline_ct = DivUp(raw_sample_ctl * sizeof(uintptr_t), kCacheline);
+    // Add more space for internal reader buffers (3x max_vrec_width is a conservative estimate)
+    pgr_alloc_cacheline_ct += DivUp(3 * max_vrec_width, kCacheline);
+    // Add more space for additional working buffers
+    pgr_alloc_cacheline_ct += DivUp(raw_sample_ctl * sizeof(uintptr_t) * 4, kCacheline);
 
     // Allocate memory for pgr using vector
-    size_t pgr_alloc_size = cur_alloc_cacheline_ct * kCacheline;
+    size_t pgr_alloc_size = pgr_alloc_cacheline_ct * kCacheline;
     std::vector<unsigned char> pgr_alloc(pgr_alloc_size);
 
+    // Initialize reader - make sure we're using the actual file path
+    const char* pgen_filename = "plink2.pgen";
 
+    // Print debug info for memory allocation
+    printf("Debug: max_vrec_width=%u, pgr_alloc_size=%zu bytes\n",
+        max_vrec_width, pgr_alloc_size);
 
-    // Initialize reader - corrected parameters
-    reterr = PgrInit("plink2.pgen", max_vrec_width, &pgfi, &pgr, pgr_alloc.data());
+    // Make sure our allocation is big enough
+    if (pgr_alloc.size() < pgr_alloc_size) {
+        fprintf(stderr, "Internal error: pgr_alloc buffer too small\n");
+        CleanupPgfi(&pgfi, &reterr);
+        return 1;
+    }
+
+    reterr = PgrInit(pgen_filename, max_vrec_width, &pgfi, &pgr, pgr_alloc.data());
     if (reterr) {
         fprintf(stderr, "PgrInit failed.\n");
         CleanupPgfi(&pgfi, &reterr);
         return 1;
     }
 
-    // Allocate memory for genotype buffer using vector
+    // Allocate memory for genotype buffer
     std::vector<uintptr_t> genovec(raw_sample_ctl);
 
     // Define subset index for all samples (no subsetting)
@@ -116,49 +131,72 @@ int32_t main(int32_t argc, char** argv)
         {
             uint32_t cur_variant_idx = variant_idx + i;
 
-            // Read hardcalls for the current variant - corrected parameters
+            // Clear genovec before reading - prevent potential memory issues
+            std::fill(genovec.begin(), genovec.end(), 0);
+
+            // Read hardcalls for the current variant
             reterr = PgrGet(nullptr, null_subset_index, sample_ct, cur_variant_idx, &pgr, genovec.data());
             if (reterr) {
-                fprintf(stderr, "Error reading variant %u\n", cur_variant_idx);
+                fprintf(stderr, "Error reading variant %u (reterr=%d)\n", cur_variant_idx, (int)reterr);
+                // Print detailed error message if possible
+                //if (PglErrstrBlen > 0) {
+                //    PglErrPrint(reterr, errstr_buf);
+                //    fputs(errstr_buf, stderr);
+                //    fputc('\n', stderr);
+                //}
                 error_occurred = true;
                 break;
             }
 
-            //cout << cur_variant_idx << endl;
-            //continue;
+            // Sanity check the data after reading
+            // In debug mode, check that there are no illegal values in the genovec
+            bool has_illegal_value = false;
+            for (uint32_t widx = 0; widx < raw_sample_ctl && !has_illegal_value; ++widx) {
+                uintptr_t geno_word = genovec[widx];
+                // Check if any 2-bit value is > 3
+                // This is a bit-hack to detect invalid values (each genotype is 2 bits)
+                uintptr_t detect = (geno_word & (geno_word >> 1)) & UINTPTR_MAX / 3;
+                if (detect) {
+                    has_illegal_value = true;
+                }
+            }
+            if (has_illegal_value) {
+                fprintf(stderr, "Warning: Detected illegal genotype value in variant %u\n", cur_variant_idx);
+                // Continue anyway, as this is just a warning
+            }
 
-            //// Process genovec data as needed
-            //// Example: Count allele frequencies
-            //uint64_t allele_counts[4] = { 0 };
-            //for (uint32_t widx = 0; widx < raw_sample_ctl; ++widx) {
-            //    uintptr_t geno_word = genovec[widx];
+            // Process genovec data as needed
+            // Example: Count allele frequencies
+            uint64_t allele_counts[4] = { 0 };
+            for (uint32_t widx = 0; widx < raw_sample_ctl; ++widx) {
+                uintptr_t geno_word = genovec[widx];
 
-            //    // Each genotype uses 2 bits: 
-            //    // 00 = homozygous ref, 01 = het, 10 = homozygous alt, 11 = missing
-            //    for (uint32_t bit_pos = 0; bit_pos < kBitsPerWord; bit_pos += 2) {
-            //        uint32_t genotype = (geno_word >> bit_pos) & 3;
-            //        allele_counts[genotype]++;
-            //    }
-            //}
+                // Each genotype uses 2 bits: 
+                // 00 = homozygous ref, 01 = het, 10 = homozygous alt, 11 = missing
+                for (uint32_t bit_pos = 0; bit_pos < kBitsPerWord; bit_pos += 2) {
+                    uint32_t genotype = (geno_word >> bit_pos) & 3;
+                    allele_counts[genotype]++;
+                }
+            }
 
-            //// Adjust the counts for the last word if sample_ct is not a multiple of 32
-            //if (sample_ct % 32) {
-            //    uint32_t extra_samples = sample_ct % 32;
-            //    uint32_t last_word_idx = raw_sample_ctl - 1;
+            // Adjust the counts for the last word if sample_ct is not a multiple of 32
+            if (sample_ct % 32) {
+                uint32_t extra_samples = sample_ct % 32;
+                uint32_t last_word_idx = raw_sample_ctl - 1;
 
-            //    // Mask out bits beyond the last sample
-            //    for (uint32_t bit_pos = extra_samples * 2; bit_pos < kBitsPerWord; bit_pos += 2) {
-            //        uint32_t genotype = (genovec[last_word_idx] >> bit_pos) & 3;
-            //        allele_counts[genotype]--;
-            //    }
-            //}
+                // Mask out bits beyond the last sample
+                for (uint32_t bit_pos = extra_samples * 2; bit_pos < kBitsPerWord; bit_pos += 2) {
+                    uint32_t genotype = (genovec[last_word_idx] >> bit_pos) & 3;
+                    allele_counts[genotype]--;
+                }
+            }
 
-            //printf("Variant %u: Hom Ref: %llu, Het: %llu, Hom Alt: %llu, Missing: %llu\n",
-            //    cur_variant_idx,
-            //    (unsigned long long)allele_counts[0],
-            //    (unsigned long long)allele_counts[1],
-            //    (unsigned long long)allele_counts[2],
-            //    (unsigned long long)allele_counts[3]);
+            printf("Variant %u: Hom Ref: %llu, Het: %llu, Hom Alt: %llu, Missing: %llu\n",
+                cur_variant_idx,
+                (unsigned long long)allele_counts[0],
+                (unsigned long long)allele_counts[1],
+                (unsigned long long)allele_counts[2],
+                (unsigned long long)allele_counts[3]);
         }
     }
 
