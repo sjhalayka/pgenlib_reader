@@ -72,18 +72,12 @@ int32_t main(int32_t argc, char** argv)
     // Calculate memory requirements for reader
     const uint32_t raw_sample_ctl = BitCtToWordCt(sample_ct);
 
-    // Need more memory for reader - account for auxiliary buffers
-    // For hardcall reading, we need at minimum:
-    // 1. genovec buffer (raw_sample_ctl * sizeof(uintptr_t))
-    // 2. Internal read buffer (at least max_vrec_width)
-    // 3. Additional buffers for multiallelic variants, dosage, phase info, etc.
-
-    // Use a more generous allocation - particularly important for multiallelic variants
+    // Increase memory allocation for reader to prevent buffer overflows
     uintptr_t pgr_alloc_cacheline_ct = DivUp(raw_sample_ctl * sizeof(uintptr_t), kCacheline);
-    // Add more space for internal reader buffers (3x max_vrec_width is a conservative estimate)
-    pgr_alloc_cacheline_ct += DivUp(3 * max_vrec_width, kCacheline);
-    // Add more space for additional working buffers
-    pgr_alloc_cacheline_ct += DivUp(raw_sample_ctl * sizeof(uintptr_t) * 4, kCacheline);
+    // CHANGE 1: More conservative allocation for reader buffers (10x instead of 6x)
+    pgr_alloc_cacheline_ct += DivUp(10 * max_vrec_width, kCacheline);
+    // CHANGE 2: Add more space for working buffers (12x instead of 8x)
+    pgr_alloc_cacheline_ct += DivUp(raw_sample_ctl * sizeof(uintptr_t) * 12, kCacheline);
 
     // Allocate memory for pgr using vector
     size_t pgr_alloc_size = pgr_alloc_cacheline_ct * kCacheline;
@@ -110,11 +104,11 @@ int32_t main(int32_t argc, char** argv)
         return 1;
     }
 
-    // Allocate memory for genotype buffer
-    std::vector<uintptr_t> genovec(raw_sample_ctl);
+    std::vector<uintptr_t> genovec(sample_ct / 8);
 
     // Define subset index for all samples (no subsetting)
     PgrSampleSubsetIndex null_subset_index;
+    PgrClearSampleSubsetIndex(&pgr, &null_subset_index);  // Properly initialize
     PgrSetSampleSubsetIndex(nullptr, &pgr, &null_subset_index);
 
     // Define the chunk size (number of variants to read at once)
@@ -131,22 +125,25 @@ int32_t main(int32_t argc, char** argv)
         {
             uint32_t cur_variant_idx = variant_idx + i;
 
+            // CHANGE 4: Add safeguard against out-of-bounds variant access
+            if (cur_variant_idx >= variant_ct) {
+                fprintf(stderr, "Error: attempting to read variant %u but variant_ct is %u\n",
+                    cur_variant_idx, variant_ct);
+                error_occurred = true;
+                break;
+            }
+
             // clear genovec before reading - prevent potential memory issues
             std::fill(genovec.begin(), genovec.end(), 0);
 
             // Read hardcalls for the current variant
             reterr = PgrGet(nullptr, null_subset_index, sample_ct, cur_variant_idx, &pgr, genovec.data());
-            if (reterr) 
+            if (reterr)
             {
                 fprintf(stderr, "Error reading variant %u (reterr=%d)\n", cur_variant_idx, (int)reterr);
                 error_occurred = true;
                 break;
             }
-
-
-
-
-
 
             // Sanity check the data after reading
             // In debug mode, check that there are no illegal values in the genovec
@@ -179,15 +176,20 @@ int32_t main(int32_t argc, char** argv)
                 }
             }
 
-            // Adjust the counts for the last word if sample_ct is not a multiple of 32
-            if (sample_ct % 32) {
-                uint32_t extra_samples = sample_ct % 32;
+            // CHANGE 5: Correctly adjust the counts for the last word
+            if (sample_ct % (kBitsPerWord / 2)) {
+                uint32_t excess_entries = (raw_sample_ctl * (kBitsPerWord / 2)) - sample_ct;
                 uint32_t last_word_idx = raw_sample_ctl - 1;
 
-                // Mask out bits beyond the last sample
-                for (uint32_t bit_pos = extra_samples * 2; bit_pos < kBitsPerWord; bit_pos += 2) {
+                // Calculate the starting bit position for padding bits
+                uint32_t padding_start_bit = (sample_ct % (kBitsPerWord / 2)) * 2;
+
+                // Safely decrement counts for padding bits
+                for (uint32_t bit_pos = padding_start_bit; bit_pos < kBitsPerWord; bit_pos += 2) {
                     uint32_t genotype = (genovec[last_word_idx] >> bit_pos) & 3;
-                    allele_counts[genotype]--;
+                    if (allele_counts[genotype] > 0) {
+                        allele_counts[genotype]--;
+                    }
                 }
             }
 
