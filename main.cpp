@@ -61,7 +61,7 @@ int32_t main(int32_t argc, char** argv) {
         &max_vrec_width,
         &pgfi,
         pgfi_alloc.data(),
-        nullptr,         
+        &cur_alloc_cacheline_ct,
         errstr_buf);
 
     if (reterr) {
