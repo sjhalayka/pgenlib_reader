@@ -11,7 +11,8 @@ using namespace std;
 using namespace plink2;
 #endif
 
-int32_t main(int32_t argc, char** argv) {
+int32_t main(int32_t argc, char** argv) 
+{
     PglErr reterr = kPglRetSuccess;
     PgenHeaderCtrl header_ctrl;
     PgenFileInfo pgfi;
@@ -111,8 +112,11 @@ int32_t main(int32_t argc, char** argv) {
         printf("Processing variants %u to %u...\n", variant_idx, variant_idx + cur_chunk_size - 1);
 
         // Process each variant in the current chunk
-        for (uint32_t i = 0; i < cur_chunk_size && !error_occurred; ++i) {
+        for (uint32_t i = 0; i < cur_chunk_size && !error_occurred; ++i)
+        {
             uint32_t cur_variant_idx = variant_idx + i;
+
+
 
             // Read hardcalls for the current variant - corrected parameters
             reterr = PgrGet(nullptr, null_subset_index, sample_ct, cur_variant_idx, &pgr, genovec.data());
@@ -121,6 +125,9 @@ int32_t main(int32_t argc, char** argv) {
                 error_occurred = true;
                 break;
             }
+
+            cout << cur_variant_idx << endl;
+            continue;
 
             // Process genovec data as needed
             // Example: Count allele frequencies
