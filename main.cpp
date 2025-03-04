@@ -1,10 +1,5 @@
 #include "pgenlib_read.h"
 #include "pgenlib_write.h"
-#include <vector>
-#include <cstdio>
-#include <algorithm>
-#include <memory>
-#include <iostream>
 using namespace std;
 
 #ifdef __cplusplus
@@ -47,7 +42,8 @@ int32_t main(int32_t argc, char** argv)
 
     // Allocate memory for pgfi
     size_t pgfi_alloc_size = cur_alloc_cacheline_ct * kCacheline;
-    std::vector<unsigned char> pgfi_alloc(pgfi_alloc_size);
+    unsigned char* pgfi_alloc = (unsigned char *)malloc(sizeof(unsigned char) * pgfi_alloc_size);
+
 
     // Initialize Phase 2
     uint32_t max_vrec_width = 0; // Will be filled by the function
@@ -60,7 +56,7 @@ int32_t main(int32_t argc, char** argv)
         variant_ct,
         &max_vrec_width,
         &pgfi,
-        pgfi_alloc.data(),
+        pgfi_alloc,
         &cur_alloc_cacheline_ct,
         errstr_buf);
 
@@ -79,9 +75,12 @@ int32_t main(int32_t argc, char** argv)
     // CHANGE 2: Add more space for working buffers (12x instead of 8x)
     pgr_alloc_cacheline_ct += DivUp(raw_sample_ctl * sizeof(uintptr_t) * 12, kCacheline);
 
+
     // Allocate memory for pgr using vector
     size_t pgr_alloc_size = pgr_alloc_cacheline_ct * kCacheline;
-    std::vector<unsigned char> pgr_alloc(pgr_alloc_size);
+    unsigned char* pgr_alloc = (unsigned char*)malloc(sizeof(unsigned char) * pgr_alloc_size);
+
+
 
     // Initialize reader - make sure we're using the actual file path
     const char* pgen_filename = "plink2.pgen";
@@ -90,21 +89,14 @@ int32_t main(int32_t argc, char** argv)
     printf("Debug: max_vrec_width=%u, pgr_alloc_size=%zu bytes\n",
         max_vrec_width, pgr_alloc_size);
 
-    // Make sure our allocation is big enough
-    if (pgr_alloc.size() < pgr_alloc_size) {
-        fprintf(stderr, "Internal error: pgr_alloc buffer too small\n");
-        CleanupPgfi(&pgfi, &reterr);
-        return 1;
-    }
-
-    reterr = PgrInit(pgen_filename, max_vrec_width, &pgfi, &pgr, pgr_alloc.data());
+    reterr = PgrInit(pgen_filename, max_vrec_width, &pgfi, &pgr, pgr_alloc);
     if (reterr) {
         fprintf(stderr, "PgrInit failed.\n");
         CleanupPgfi(&pgfi, &reterr);
         return 1;
     }
 
-    std::vector<uintptr_t> genovec(sample_ct / 8);
+    uintptr_t* genovec = (uintptr_t*)malloc(sizeof(uintptr_t) * sample_ct / 8);
 
     // Define subset index for all samples (no subsetting)
     PgrSampleSubsetIndex null_subset_index;
@@ -133,11 +125,8 @@ int32_t main(int32_t argc, char** argv)
                 break;
             }
 
-            // clear genovec before reading - prevent potential memory issues
-            std::fill(genovec.begin(), genovec.end(), 0);
-
             // Read hardcalls for the current variant
-            reterr = PgrGet(nullptr, null_subset_index, sample_ct, cur_variant_idx, &pgr, genovec.data());
+            reterr = PgrGet(nullptr, null_subset_index, sample_ct, cur_variant_idx, &pgr, genovec);
             if (reterr)
             {
                 fprintf(stderr, "Error reading variant %u (reterr=%d)\n", cur_variant_idx, (int)reterr);
@@ -203,6 +192,11 @@ int32_t main(int32_t argc, char** argv)
     }
 
     // Clean up resources
+
+    free(pgfi_alloc);
+    free(pgr_alloc);
+    free(genovec);
+
     CleanupPgr(&pgr, &reterr);
     CleanupPgfi(&pgfi, &reterr);
 
