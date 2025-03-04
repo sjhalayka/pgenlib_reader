@@ -131,22 +131,22 @@ int32_t main(int32_t argc, char** argv)
         {
             uint32_t cur_variant_idx = variant_idx + i;
 
-            // Clear genovec before reading - prevent potential memory issues
+            // clear genovec before reading - prevent potential memory issues
             std::fill(genovec.begin(), genovec.end(), 0);
 
             // Read hardcalls for the current variant
             reterr = PgrGet(nullptr, null_subset_index, sample_ct, cur_variant_idx, &pgr, genovec.data());
-            if (reterr) {
+            if (reterr) 
+            {
                 fprintf(stderr, "Error reading variant %u (reterr=%d)\n", cur_variant_idx, (int)reterr);
-                // Print detailed error message if possible
-                //if (PglErrstrBlen > 0) {
-                //    PglErrPrint(reterr, errstr_buf);
-                //    fputs(errstr_buf, stderr);
-                //    fputc('\n', stderr);
-                //}
                 error_occurred = true;
                 break;
             }
+
+
+
+
+
 
             // Sanity check the data after reading
             // In debug mode, check that there are no illegal values in the genovec
